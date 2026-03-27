@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Element Blocks - miaaaaliu</title>
+<style>
+body{background:#fff;text-align:center;font-family:sans-serif}
+
+/* ⭐ 版面左右排 */
+#container{
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  gap:40px;
+  margin-top:20px;
+}
+
+#side{
+  text-align:center;
+}
+
+canvas{
+  background:#f8f8f8;
+  border:2px solid #ddd;
+}
+
+/* 遊戲畫面 */
+#game{
+  width:400px;
+  height:680px;
+}
+
+/* 預覽框 */
+#next{
+  margin-top:10px;
+}
+
+/* Overlay */
+.overlay{
+position:fixed;top:0;left:0;width:100%;height:100%;
+background:rgba(0,0,0,0.6);
+display:flex;align-items:center;justify-content:center;flex-direction:column;
+color:#fff;
+}
+
+.count{font-size:80px;font-weight:bold}
+
+button{
+padding:10px 20px;
+font-size:16px;
+border:none;
+border-radius:8px;
+background:#8338ec;
+color:white;
+cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Element Blocks - miaaaaliu</h1>
+<p>← → 移動 ｜ ↑ 旋轉 ｜ ↓ 加速 ｜ 空白鍵放下</p>
+
+<div id="container">
+
+  <!-- 🎮 遊戲 -->
+  <canvas id="game" width="400" height="680"></canvas>
+
+  <!-- 👉 右側資訊 -->
+  <div id="side">
+    <h3>下一個方塊</h3>
+    <canvas id="next" width="120" height="120"></canvas>
+    <p>分數: <span id="score">0</span></p>
+  </div>
+
+</div>
+
+<!-- 開始畫面 -->
+<div id="startScreen" class="overlay">
+<button id="startBtn">開始遊戲</button>
+<div id="countdown" class="count"></div>
+</div>
+
+<!-- Game Over -->
+<div id="gameOver" class="overlay" style="display:none">
+<h2>Game Over</h2>
+<p>分數: <span id="finalScore"></span></p>
+<button id="restartBtn">再來一次</button>
+<div id="countdown2" class="count"></div>
+</div>
+
+<script>
+const canvas = document.getElementById("game")
+const ctx = canvas.getContext("2d")
+const nextCanvas = document.getElementById("next")
+const nextCtx = nextCanvas.getContext("2d")
+
+const COLS=10, ROWS=17, SIZE=40
+let score=0, gameRunning=false
+
+const colors=['#ff3b3b','#ff8c00','#ffd400','#00d4ff','#3b5bff','#8338ec','#00e676']
+
+const pieces=[
+[[1,1,1,1]],
+[[1,1],[1,1]],
+[[0,1,0],[1,1,1]],
+[[1,0,0],[1,1,1]],
+[[0,0,1],[1,1,1]],
+[[0,1,1],[1,1,0]],
+[[1,1,0],[0,1,1]]
+]
+
+let bag=[]
+function refillBag(){
+bag=[0,1,2,3,4,5,6].sort(()=>Math.random()-0.5)
+}
+function randomPiece(){
+if(!bag.length) refillBag()
+let i=bag.pop()
+return {shape:JSON.parse(JSON.stringify(pieces[i])),color:colors[Math.floor(Math.random()*colors.length)]}
+}
+
+let board, piece, nextPiece, pos
+
+function resetGame(){
+board=Array.from({length:ROWS},()=>Array(COLS).fill(null))
+piece=randomPiece()
+nextPiece=randomPiece()
+pos={x:3,y:0}
+score=0
+document.getElementById("score").textContent=0
+}
+
+function drawCell(x,y,color){
+ctx.fillStyle=color
+ctx.fillRect(x*SIZE,y*SIZE,SIZE,SIZE)
+ctx.strokeStyle="#fff"
+ctx.strokeRect(x*SIZE,y*SIZE,SIZE,SIZE)
+}
+
+function draw(){
+ctx.clearRect(0,0,400,680)
+board.forEach((r,y)=>r.forEach((c,x)=>{if(c)drawCell(x,y,c)}))
+piece.shape.forEach((r,y)=>r.forEach((v,x)=>{
+if(v) drawCell(x+pos.x,y+pos.y,piece.color)
+}))
+}
+
+function drawNext(){
+nextCtx.clearRect(0,0,120,120)
+nextPiece.shape.forEach((r,y)=>r.forEach((v,x)=>{
+if(v){
+nextCtx.fillStyle=nextPiece.color
+nextCtx.fillRect(x*30,y*30,30,30)
+}
+}))
+}
+
+function collide(px=pos.x,py=pos.y,shape=piece.shape){
+for(let y=0;y<shape.length;y++){
+for(let x=0;x<shape[y].length;x++){
+if(shape[y][x]){
+let nx=x+px, ny=y+py
+if(nx<0||nx>=COLS||ny>=ROWS||board[ny]?.[nx]) return true
+}
+}}
+return false
+}
+
+function merge(){
+piece.shape.forEach((r,y)=>r.forEach((v,x)=>{
+if(v) board[y+pos.y][x+pos.x]=piece.color
+}))
+}
+
+function rotate(){
+let r=piece.shape[0].map((_,i)=>piece.shape.map(row=>row[i]).reverse())
+if(!collide(pos.x,pos.y,r)) piece.shape=r
+}
+
+function clearLines(){
+let lines=0
+
+board = board.filter(row=>{
+if(row.every(c=>c)){
+lines++
+return false
+}
+return true
+})
+
+while(board.length<ROWS){
+board.unshift(Array(COLS).fill(null))
+}
+
+if(lines===1) score+=100
+if(lines===2) score+=300
+if(lines===3) score+=500
+if(lines>=4) score+=800
+
+document.getElementById("score").textContent=score
+}
+
+function spawn(){
+piece=nextPiece
+nextPiece=randomPiece()
+pos={x:3,y:0}
+if(collide()) endGame()
+}
+
+function endGame(){
+gameRunning=false
+document.getElementById("finalScore").textContent=score
+document.getElementById("gameOver").style.display="flex"
+}
+
+function drop(){
+if(!gameRunning) return
+pos.y++
+if(collide()){
+pos.y--
+merge()
+clearLines()
+spawn()
+}
+draw()
+drawNext()
+}
+
+setInterval(drop,500)
+
+window.addEventListener("keydown",e=>{
+if(!gameRunning) return
+
+if(e.key==="ArrowLeft"&&!collide(pos.x-1,pos.y)) pos.x--
+if(e.key==="ArrowRight"&&!collide(pos.x+1,pos.y)) pos.x++
+if(e.key==="ArrowDown") drop()
+if(e.key==="ArrowUp") rotate()
+
+if(e.code==="Space"){
+while(!collide(pos.x,pos.y+1)) pos.y++
+merge()
+clearLines()
+spawn()
+}
+
+draw()
+})
+
+function countdown(el,cb){
+let n=5
+el.textContent=n
+let t=setInterval(()=>{
+n--
+if(n<=0){
+clearInterval(t)
+el.textContent=""
+cb()
+}else el.textContent=n
+},1000)
+}
+
+document.getElementById("startBtn").onclick=()=>{
+countdown(document.getElementById("countdown"),()=>{
+document.getElementById("startScreen").style.display="none"
+resetGame()
+gameRunning=true
+})
+}
+
+document.getElementById("restartBtn").onclick=()=>{
+countdown(document.getElementById("countdown2"),()=>{
+document.getElementById("gameOver").style.display="none"
+resetGame()
+gameRunning=true
+})
+}
+
+resetGame()
+draw()
+drawNext()
+</script>
+
+</body>
+</html>
